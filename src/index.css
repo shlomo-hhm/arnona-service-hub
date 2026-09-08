@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: 'Assistant', 'Rubik', 'Segoe UI', Arial, sans-serif;
+  background-color: #F7F9FA;
+  color: #18252B;
+}
+
+/* Clear, visible focus ring for keyboard navigation (accessibility) */
+:focus-visible {
+  outline: 3px solid #0097A7;
+  outline-offset: 2px;
+}
+
+* {
+  scrollbar-width: thin;
+}
