@@ -1,7 +1,7 @@
 name: Link check
 
 # Weekly dead-link check of every service URL in src/data/forms.ts.
-# - schedule / manual dispatch: on broken links, opens or updates ONE issue (label "broken-links");
+# - manual dispatch (schedule disabled, see below): on broken links, opens or updates ONE issue (label "broken-links");
 #   when everything is fine again, the open issue is commented on and closed.
 # - KNOWN LIMIT: the municipal CDN blocks GitHub-hosted runner IPs (403 for everything). The script
 #   detects that ("BLOCKED" note in the summary) and leaves the issue alone. For real checks run
@@ -10,8 +10,10 @@ name: Link check
 # No secrets needed: uses the built-in GITHUB_TOKEN. This workflow does not build or deploy the site.
 
 on:
-  schedule:
-    - cron: '17 5 * * 0' # Sundays 05:17 UTC (about 08:17 Israel time)
+  # Weekly schedule DISABLED (2026-09-30): GitHub runners (and an Oracle Frankfurt VPS) get 403 from the
+  # municipal CDN, so a scheduled run can only ever report BLOCKED. Re-enable if a non-blocked runner exists:
+  # schedule:
+  #   - cron: '17 5 * * 0' # Sundays 05:17 UTC (about 08:17 Israel time)
   workflow_dispatch:
   pull_request:
     paths:
