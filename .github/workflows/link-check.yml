@@ -1,0 +1,62 @@
+name: Link check
+
+# Weekly dead-link check of every service URL in src/data/forms.ts.
+# - manual dispatch (schedule disabled, see below): on broken links, opens or updates ONE issue (label "broken-links");
+#   when everything is fine again, the open issue is commented on and closed.
+# - KNOWN LIMIT: the municipal CDN blocks GitHub-hosted runner IPs (403 for everything). The script
+#   detects that ("BLOCKED" note in the summary) and leaves the issue alone. For real checks run
+#   `node scripts/check-links.mjs --issue` from an Israeli IP (see README).
+# - pull_request (only when the checker itself changes): dry run, report in the job summary, no issue.
+# No secrets needed: uses the built-in GITHUB_TOKEN. This workflow does not build or deploy the site.
+
+on:
+  # Weekly schedule DISABLED (2026-09-30): GitHub runners (and an Oracle Frankfurt VPS) get 403 from the
+  # municipal CDN, so a scheduled run can only ever report BLOCKED. Re-enable if a non-blocked runner exists:
+  # schedule:
+  #   - cron: '17 5 * * 0' # Sundays 05:17 UTC (about 08:17 Israel time)
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/check-links.mjs'
+      - '.github/workflows/link-check.yml'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: link-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check links (and open/update/close the issue on scheduled + manual runs)
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            node scripts/check-links.mjs --report=link-report.md --json=link-report.json
+          else
+            node scripts/check-links.mjs --report=link-report.md --json=link-report.json --issue
+          fi
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: link-report
+          path: |
+            link-report.md
+            link-report.json

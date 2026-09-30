@@ -112,3 +112,11 @@ src/
 ספציפי. כדי להוסיף תחום שירות חדש (חניה, רישוי עסקים, חינוך וכו') — ניתן
 להוסיף עוד רשומות `Service` עם `category` חדשה (ולסמן קובץ נתונים נפרד אם
 רוצים, ולאחד אותם למערך אחד ב-`forms.ts`), ללא כל שינוי בקומפוננטות.
+
+## Link checker
+
+`scripts/check-links.mjs` checks every `url` in `src/data/forms.ts` (HEAD, then GET fallback, redirects followed, timeouts, ~1 request/second per host) and, with `--issue`, keeps a single open GitHub issue labelled `broken-links` up to date (it closes itself once all links are fine). Node 18+, no install.
+
+- **Run it (recommended, from an Israeli IP):** `node scripts/check-links.mjs --issue` (uses your `gh auth login`; without `--issue` it only writes `link-report.md`). Weekly on Windows: `schtasks /Create /SC WEEKLY /D SUN /ST 09:00 /TN "arnona-link-check" /TR "cmd /c cd /d <repo folder> && node scripts/check-links.mjs --issue"`.
+- **GitHub Action** `.github/workflows/link-check.yml` (manual dispatch only, the weekly schedule is disabled because every runner IP tested, GitHub and an Oracle Frankfurt VPS, is blocked: Actions > Link check > Run workflow) runs the same script. **Known limit:** the municipal CDN (Akamai) returns 403 to all GitHub-hosted runner IPs (US/Azure), even to a real browser, so from Actions nothing can be verified. The script detects this ("BLOCKED"), leaves the issue untouched and says so in the job summary. It will work as-is from a runner with an Israeli egress IP (self-hosted runner or proxy).
+- Notes: the CDN also rejects bot-looking user agents, so a browser UA is sent (plus an `x-link-checker` header); `jeronlineforms` returns HTTP 200 for unknown forms, so the checker verifies each form's `/Scripts/<Form>/styles.css`; URLs differing only by query string cannot be validated that way.
