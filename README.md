@@ -112,3 +112,7 @@ src/
 ספציפי. כדי להוסיף תחום שירות חדש (חניה, רישוי עסקים, חינוך וכו') — ניתן
 להוסיף עוד רשומות `Service` עם `category` חדשה (ולסמן קובץ נתונים נפרד אם
 רוצים, ולאחד אותם למערך אחד ב-`forms.ts`), ללא כל שינוי בקומפוננטות.
+
+## Link checker
+
+`.github/workflows/link-check.yml` runs `scripts/check-links.mjs` every Sunday (and on manual dispatch: Actions > Link check > Run workflow). It checks every `url` in `src/data/forms.ts` (HEAD, then GET fallback, redirects followed) and keeps a single open issue labelled `broken-links` up to date; the issue closes itself once all links are fine. Run locally with `node scripts/check-links.mjs` (Node 18+, no install needed). Notes: the municipal CDN blocks bot-looking user agents, so the checker sends a browser UA; `jeronlineforms` returns HTTP 200 for unknown forms, so the checker also verifies each form's `/Scripts/<Form>/styles.css` bundle; URLs that differ only by query string cannot be validated that way.

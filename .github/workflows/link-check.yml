@@ -1,0 +1,84 @@
+name: Link check
+
+# Weekly dead-link check of every service URL in src/data/forms.ts.
+# - schedule / manual dispatch: on broken links, opens or updates ONE issue (label "broken-links");
+#   when everything is fine again, the open issue is commented on and closed.
+# - pull_request (only when the checker itself changes): dry run, report in the job summary, no issue.
+# No secrets needed: uses the built-in GITHUB_TOKEN. This workflow does not build or deploy the site.
+
+on:
+  schedule:
+    - cron: '17 5 * * 0' # Sundays 05:17 UTC (about 08:17 Israel time)
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/check-links.mjs'
+      - '.github/workflows/link-check.yml'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: link-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check links
+        id: check
+        run: node scripts/check-links.mjs --report=link-report.md --json=link-report.json
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: link-report
+          path: |
+            link-report.md
+            link-report.json
+
+      - name: Open, update or close the issue
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BROKEN: ${{ steps.check.outputs.broken }}
+          UNVERIFIED: ${{ steps.check.outputs.unverified }}
+        run: |
+          set -euo pipefail
+          LABEL="broken-links"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          gh label create "$LABEL" --color B60205 --description "Dead service URLs found by the link checker" 2>/dev/null || true
+          EXISTING=$(gh issue list --label "$LABEL" --state open --json number --jq '.[0].number // empty')
+
+          if [ "${BROKEN:-0}" -gt 0 ]; then
+            {
+              echo "Automated link check found **${BROKEN} broken** link(s) (and ${UNVERIFIED:-0} that could not be verified)."
+              echo
+              echo "Run: ${RUN_URL} (this issue is updated on every run and closes itself when all links are fine)."
+              echo
+              tail -n +2 link-report.md
+            } > issue-body.md
+            if [ -n "$EXISTING" ]; then
+              gh issue edit "$EXISTING" --body-file issue-body.md
+              echo "Updated issue #$EXISTING"
+            else
+              gh issue create --title "Broken service links (automated link check)" --label "$LABEL" --body-file issue-body.md
+            fi
+          elif [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "All links are OK again as of this run: ${RUN_URL}. Closing."
+            gh issue close "$EXISTING"
+          else
+            echo "No broken links and no open issue. Nothing to do."
+          fi
