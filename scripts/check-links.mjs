@@ -129,7 +129,7 @@ async function request(method, url) {
 function classify(r) {
   if (r.error) {
     if (r.error === 'timeout') return 'unverified';
-    if (/ENOTFOUND|EAI_AGAIN|ECONNREFUSED|CERT|SSL|TLS|redirect|UND_ERR_CONNECT|self.signed|expired/i.test(r.error)) return 'broken';
+    if (/ENOTFOUND|ECONNREFUSED|CERT|SSL|TLS|redirect|self.signed|expired/i.test(r.error)) return 'broken';
     return 'unverified';
   }
   const s = r.status;
@@ -247,15 +247,13 @@ if (process.env.GITHUB_STEP_SUMMARY) {
 // GitHub-hosted runners are US/Azure IPs and the municipal CDN (Akamai) answers 403 to all of them,
 // even to a real Chromium (verified 2026-09-30). If (almost) everything is 403 we treat the run as
 // "blocked": we neither open nor close an issue, because we learned nothing about the links.
-const blocked403 = unverified.filter((r) => r.status === 403).length;
+const NL = String.fromCharCode(10);
+const blocked403 = unverified.length; // 403s and network errors alike: we learned nothing
 const blockedRun = results.length > 0 && blocked403 / results.length >= 0.9;
 if (blockedRun) {
-  const msg = `BLOCKED: ${blocked403}/${results.length} URLs answered 403 (this machine's IP is blocked by the municipal CDN). Nothing verified; issue left untouched. Run it from an Israeli IP (see README).`;
-  console.log('
-' + msg);
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `
-> **${msg}**
-`);
+  const msg = `BLOCKED: ${blocked403}/${results.length} URLs could not be verified (403 or network errors; typically this machine's IP is blocked by the municipal CDN, or the network is down). Nothing verified; issue left untouched. Run it from an Israeli IP (see README).`;
+  console.log(NL + msg);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${NL}> **${msg}**${NL}`);
 }
 if (args.issue && !blockedRun) {
   const gh = (a, input) => {
@@ -271,16 +269,13 @@ if (args.issue && !blockedRun) {
     spawnSync('gh', ['label', 'create', LABEL, '--color', 'B60205', '--description', 'Dead service URLs found by the link checker'], { encoding: 'utf8' });
     const existing = gh(['issue', 'list', '--label', LABEL, '--state', 'open', '--json', 'number', '--jq', '.[0].number // empty']);
     if (broken.length) {
-      const body =
-        `Automated link check found **${broken.length} broken** link(s) (and ${unverified.length} that could not be verified).
-
-` +
-        `Source: ${runUrl}. This issue is updated on every run and closes itself when all links are fine.
-
-` +
-        md.split('
-').slice(1).join('
-');
+      const body = [
+        `Automated link check found **${broken.length} broken** link(s) (and ${unverified.length} that could not be verified).`,
+        '',
+        `Source: ${runUrl}. This issue is updated on every run and closes itself when all links are fine.`,
+        '',
+        ...md.split(NL).slice(1),
+      ].join(NL);
       if (existing) {
         gh(['issue', 'edit', existing, '--body-file', '-'], body);
         console.log(`Updated issue #${existing}`);
