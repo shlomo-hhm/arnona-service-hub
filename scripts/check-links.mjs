@@ -2,7 +2,9 @@
 // Dead-link checker for every service URL in src/data/forms.ts.
 // Zero dependencies (Node >= 18, uses global fetch). Never modifies forms.ts.
 //
-// Usage:  node scripts/check-links.mjs [--report=link-report.md] [--json=link-report.json]
+// Usage:  node scripts/check-links.mjs [--report=link-report.md] [--json=link-report.json] [--issue]
+//   --issue  also open/update/close the single "broken-links" GitHub issue via the `gh` CLI
+//            (in Actions it uses GH_TOKEN, locally your `gh auth login`). No other secrets.
 //
 // Per URL: HEAD first, GET fallback (many servers answer HEAD with 403/404/405),
 // redirects followed, per-request timeout, one retry for transient failures,
@@ -19,6 +21,7 @@
 // Output for GitHub Actions: writes to $GITHUB_OUTPUT (broken=N, unverified=M) when present.
 
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -238,4 +241,61 @@ if (process.env.GITHUB_OUTPUT) {
 }
 if (process.env.GITHUB_STEP_SUMMARY) {
   appendFileSync(process.env.GITHUB_STEP_SUMMARY, md);
+}
+
+// ---- 5. GitHub issue (optional) --------------------------------------------
+// GitHub-hosted runners are US/Azure IPs and the municipal CDN (Akamai) answers 403 to all of them,
+// even to a real Chromium (verified 2026-09-30). If (almost) everything is 403 we treat the run as
+// "blocked": we neither open nor close an issue, because we learned nothing about the links.
+const blocked403 = unverified.filter((r) => r.status === 403).length;
+const blockedRun = results.length > 0 && blocked403 / results.length >= 0.9;
+if (blockedRun) {
+  const msg = `BLOCKED: ${blocked403}/${results.length} URLs answered 403 (this machine's IP is blocked by the municipal CDN). Nothing verified; issue left untouched. Run it from an Israeli IP (see README).`;
+  console.log('
+' + msg);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `
+> **${msg}**
+`);
+}
+if (args.issue && !blockedRun) {
+  const gh = (a, input) => {
+    const r = spawnSync('gh', a, { encoding: 'utf8', input });
+    if (r.status !== 0) throw new Error(`gh ${a.join(' ')} failed: ${r.stderr || r.error}`);
+    return r.stdout.trim();
+  };
+  const LABEL = 'broken-links';
+  const runUrl = process.env.GITHUB_RUN_ID
+    ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
+    : 'a manual run';
+  try {
+    spawnSync('gh', ['label', 'create', LABEL, '--color', 'B60205', '--description', 'Dead service URLs found by the link checker'], { encoding: 'utf8' });
+    const existing = gh(['issue', 'list', '--label', LABEL, '--state', 'open', '--json', 'number', '--jq', '.[0].number // empty']);
+    if (broken.length) {
+      const body =
+        `Automated link check found **${broken.length} broken** link(s) (and ${unverified.length} that could not be verified).
+
+` +
+        `Source: ${runUrl}. This issue is updated on every run and closes itself when all links are fine.
+
+` +
+        md.split('
+').slice(1).join('
+');
+      if (existing) {
+        gh(['issue', 'edit', existing, '--body-file', '-'], body);
+        console.log(`Updated issue #${existing}`);
+      } else {
+        console.log(gh(['issue', 'create', '--title', 'Broken service links (automated link check)', '--label', LABEL, '--body-file', '-'], body));
+      }
+    } else if (existing) {
+      gh(['issue', 'comment', existing, '--body', `All links are OK again as of ${runUrl}. Closing.`]);
+      gh(['issue', 'close', existing]);
+      console.log(`Closed issue #${existing}`);
+    } else {
+      console.log('No broken links and no open issue. Nothing to do.');
+    }
+  } catch (e) {
+    console.error(String(e.message || e));
+    process.exit(3);
+  }
 }
